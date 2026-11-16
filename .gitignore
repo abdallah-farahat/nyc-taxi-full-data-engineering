@@ -1,0 +1,27 @@
+# Python virtual environment (never commit it; anyone can recreate it)
+venv/
+__pycache__/
+*.pyc
+
+# Secrets: credentials live ONLY in .env, never in Git
+.env
+
+# Data: TLC files are gigabytes; Git is for code, not data
+data/
+*.parquet
+*.csv
+!taxi_zone_lookup.csv
+
+# Spark / Delta / Airflow local artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+airflow/logs/
+
+# Terraform state can contain secrets
+.terraform/
+*.tfstate*
+
+# Editor / OS noise
+.vscode/
+.DS_Store
