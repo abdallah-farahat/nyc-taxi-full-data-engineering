@@ -1,0 +1,38 @@
+# Which months belong to the batch load. 2026-09 is kept for the streaming phase.
+batch_months:
+  first: "2025-01"
+  last: "2026-08"
+
+# Gate 1: a file missing any mandatory column goes to quarantine_bronze.
+# expected_rows comes from our profiling (used only for a final reconciliation check).
+sources:
+  yellow:
+    folder: yellow
+    table: yellow_trips
+    expected_rows: 78425957
+    required_columns:
+      - VendorID
+      - tpep_pickup_datetime
+      - tpep_dropoff_datetime
+      - passenger_count
+      - trip_distance
+      - PULocationID
+      - DOLocationID
+      - payment_type
+      - fare_amount
+      - total_amount
+  green:
+    folder: green
+    table: green_trips
+    expected_rows: 928489
+    required_columns:
+      - VendorID
+      - lpep_pickup_datetime
+      - lpep_dropoff_datetime
+      - passenger_count
+      - trip_distance
+      - PULocationID
+      - DOLocationID
+      - payment_type
+      - fare_amount
+      - total_amount
