@@ -1,19 +1,50 @@
 services:
+  # Spark: runs our batch and streaming jobs
   spark:
-    # Build the image from the Dockerfile in this folder
     build: .
     container_name: nyc_taxi_spark
-    # Pass every variable from .env into the container
     env_file: .env
-    # NEW: makes the name host.docker.internal point to your Windows PC (SQL Server runs there)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # Our code (edit in VS Code, run in the container)
       - ./src:/app/src
-      # NEW: config files (sources, rules)
       - ./config:/app/config
-      # Raw TLC files, read-only (:ro) so a bug can never change the source data
       - ${RAW_DATA_HOST_PATH}:/data/raw:ro
-      # The lakehouse (Delta tables) is written here and stays on your F: drive
       - ${LAKEHOUSE_HOST_PATH}:/data/lakehouse
+
+  # Simulated "live dispatch" REST API: serves the 2026-09 trips page by page
+  api:
+    build: .
+    container_name: nyc_taxi_api
+    env_file: .env
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ${RAW_DATA_HOST_PATH}:/data/raw:ro
+
+  # Kafka: the "mailbox" between the API producer and Spark streaming
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: nyc_taxi_kafka
+    environment:
+      # One node that is both broker and controller (KRaft mode, no ZooKeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # One node only, so internal topics need replication factor 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      # Named volume: messages survive a container restart
+      - kafka_data:/var/lib/kafka/data
+
+volumes:
+  kafka_data:

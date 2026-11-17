@@ -87,12 +87,18 @@ def gate1(spark, path, required_columns):
         df = spark.read.parquet(str(path))
         columns = df.columns          # reads only the file footer
     except Exception as error:
-        return False, f"unreadable file: {type(error).__name__}", None, None
+ # Spark wraps the real cause inside a Java error, so we look for known phrases
+        text = str(error)
+        if "not a Parquet file" in text or "CANNOT_READ_FILE_FOOTER" in text:
+            reason = "unreadable file: not a valid Parquet file"
+        else:
+            reason = f"unreadable file: {type(error).__name__}"
+        return False, reason, None, None
 
     # Check 2: every mandatory column is present
     missing = [c for c in required_columns if c not in columns]
     if missing:
-        return False, f"missing mandatory columns: {missing}", None, None
+        return False, f"missing mandatory columns: {missing}", None, df.count()
 
     # Check 3: the file is not empty (count uses the footer, so it is fast)
     rows = df.count()
