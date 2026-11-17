@@ -187,11 +187,15 @@ def main():
         raise
 
     audit.finish_run(run_id, "SUCCESS")
-
-    # Final reconciliation: Bronze totals must match the numbers from our profiling
+      
+ # Final reconciliation: Bronze totals must match the numbers from our profiling
     for taxi_type, source in config["sources"].items():
-        total = (spark.read.format("delta")
-                 .load(f"{BRONZE_PATH}/{source['table']}").count())
+        table_path = f"{BRONZE_PATH}/{source['table']}"
+        # If every file of this type was quarantined, the table does not exist yet
+        if not DeltaTable.isDeltaTable(spark, table_path):
+            log.warning("event=reconciliation table=%s result=NO_TABLE", source["table"])
+            continue
+        total = spark.read.format("delta").load(table_path).count()
         verdict = "OK" if total == source["expected_rows"] else "MISMATCH"
         log.info("event=reconciliation table=%s rows=%d expected=%d result=%s",
                  source["table"], total, source["expected_rows"], verdict)
