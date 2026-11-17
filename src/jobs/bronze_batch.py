@@ -98,7 +98,7 @@ def gate1(spark, path, required_columns):
     # Check 2: every mandatory column is present
     missing = [c for c in required_columns if c not in columns]
     if missing:
-        return False, f"missing mandatory columns: {missing}", None, None
+        return False, f"missing mandatory columns: {missing}", None, df.count()
 
     # Check 3: the file is not empty (count uses the footer, so it is fast)
     rows = df.count()
