@@ -1,0 +1,14 @@
+services:
+  spark:
+    # Build the image from the Dockerfile in this folder
+    build: .
+    container_name: nyc_taxi_spark
+    # Pass every variable from .env into the container
+    env_file: .env
+    volumes:
+      # Our code (edit in VS Code, run in the container)
+      - ./src:/app/src
+      # Raw TLC files, read-only (:ro) so a bug can never change the source data
+      - ${RAW_DATA_HOST_PATH}:/data/raw:ro
+      # The lakehouse (Delta tables) is written here and stays on your F: drive
+      - ${LAKEHOUSE_HOST_PATH}:/data/lakehouse
