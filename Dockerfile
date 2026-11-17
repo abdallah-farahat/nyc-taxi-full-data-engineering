@@ -17,5 +17,12 @@ from delta import configure_spark_with_delta_pip; \
 b = SparkSession.builder.master('local[1]'); \
 configure_spark_with_delta_pip(b).getOrCreate().stop()"
 
+# NEW: pyyaml reads our config files, pymssql writes to SQL Server (audit tables).
+# This layer is after the heavy Spark layers, so the rebuild is fast.
+RUN pip install --no-cache-dir "pyyaml>=6" "pymssql>=2.3,<3"
+
+# NEW: lets our jobs write "from common import audit" no matter where they start.
+ENV PYTHONPATH=/app/src
+
 # Our code will live here (mounted from your PC by docker-compose)
 WORKDIR /app

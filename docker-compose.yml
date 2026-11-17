@@ -5,9 +5,14 @@ services:
     container_name: nyc_taxi_spark
     # Pass every variable from .env into the container
     env_file: .env
+    # NEW: makes the name host.docker.internal point to your Windows PC (SQL Server runs there)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Our code (edit in VS Code, run in the container)
       - ./src:/app/src
+      # NEW: config files (sources, rules)
+      - ./config:/app/config
       # Raw TLC files, read-only (:ro) so a bug can never change the source data
       - ${RAW_DATA_HOST_PATH}:/data/raw:ro
       # The lakehouse (Delta tables) is written here and stays on your F: drive
