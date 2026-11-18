@@ -7,6 +7,9 @@ For every micro-batch of messages:
   - fail -> quarantine_bronze (raw message, partition and offset are kept)
   - the result is written to audit.step_logs
 
+Writes are IDEMPOTENT: if Spark repeats a micro-batch after a failure, Delta
+recognises (txnAppId, txnVersion) and ignores the second write. No duplicates.
+
 Usage:
   python -u src/jobs/stream_bronze.py           # continuous (stop with Ctrl+C)
   python -u src/jobs/stream_bronze.py --once    # process what is in Kafka now, then stop
@@ -30,6 +33,8 @@ KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 STREAM_MONTH = os.getenv("STREAM_MONTH", "2026-09")
 CONFIG_PATH = os.getenv("SOURCES_CONFIG", "/app/config/sources.yml")
 MAX_OFFSETS = int(os.getenv("MAX_OFFSETS_PER_TRIGGER", "300000"))   # messages per micro-batch
+# Change this value ONLY after resetting the checkpoints (batch ids restart from 0)
+WRITER_VERSION = os.getenv("STREAM_WRITER_VERSION", "v1")
 
 BRONZE_PATH = f"{LAKEHOUSE_PATH}/bronze"
 QUARANTINE_PATH = f"{LAKEHOUSE_PATH}/quarantine/quarantine_bronze"
@@ -96,6 +101,9 @@ def make_batch_handler(spark, run_id, taxi_type, source, schema):
                  .withColumn("source_file", F.lit(source_file))
                  .withColumn("ingestion_timestamp", F.current_timestamp())
                  .write.format("delta").mode("append")
+                 # Idempotent write: the same (app id, batch id) is written only once
+                 .option("txnAppId", f"bronze_stream_{taxi_type}_{WRITER_VERSION}")
+                 .option("txnVersion", batch_id)
                  .option("mergeSchema", "true")
                  .partitionBy("source_file")
                  .save(table_path))
@@ -109,6 +117,8 @@ def make_batch_handler(spark, run_id, taxi_type, source, schema):
                 .withColumn("run_id", F.lit(run_id))
                 .withColumn("quarantined_at", F.current_timestamp())
                 .write.format("delta").mode("append")
+                .option("txnAppId", f"quarantine_stream_{taxi_type}_{WRITER_VERSION}")
+                .option("txnVersion", batch_id)
                 .option("mergeSchema", "true")
                 .save(QUARANTINE_PATH))
 
@@ -128,7 +138,8 @@ def main(once):
 
     spark = build_spark()
     run_id = audit.start_run("stream_bronze")
-    log.info("event=stream_started run_id=%s once=%s", run_id, once)
+    log.info("event=stream_started run_id=%s once=%s writer_version=%s",
+             run_id, once, WRITER_VERSION)
 
     queries = []
     for taxi_type, source in config["sources"].items():

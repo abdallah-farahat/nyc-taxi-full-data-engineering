@@ -1,0 +1,34 @@
+# Gate 2 rules. All limits come from our profiling (see the Data Dictionary doc).
+
+# Pickups outside this range are impossible for our data (hard rule)
+project_range:
+  start: "2025-01-01"
+  end_exclusive: "2026-10-01"
+
+# HARD limits: a row that breaks one goes to quarantine_silver
+hard_limits:
+  max_duration_hours: 24
+  max_passenger_count: 6
+  max_trip_distance_miles: 100
+  max_fare_amount: 1000
+  max_speed_mph: 100
+
+# SOFT limits: the row stays in Silver and gets a flag in data_quality_flags
+soft_limits:
+  long_duration_hours: 3
+  short_duration_seconds: 60
+  long_distance_miles: 50
+  high_fare_amount: 300
+  high_speed_mph: 80
+
+allowed_codes:
+  vendor_id: [1, 2, 6, 7]
+  ratecode_id: [1, 2, 3, 4, 5, 6, 99]
+  payment_type: [0, 1, 2, 3, 4, 5, 6]
+  trip_type: [1, 2]
+
+# The congestion fee started on this date
+cbd_fee_start_date: "2025-01-05"
+
+# Zone lookup file, relative to the raw data folder
+lookup_file: "lookup/taxi_zone_lookup.csv"
