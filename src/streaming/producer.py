@@ -50,11 +50,21 @@ def messages_in_topic(topic):
 def send_taxi_type(producer, taxi_type):
     topic = f"taxi.{taxi_type}.trips"
     existing = messages_in_topic(topic)
+    # How many trips does the API hold? (limit=1 returns just the total)
+    available = requests.get(f"{API_URL}/trips/{taxi_type}",
+                             params={"offset": 0, "limit": 1}, timeout=60).json()["total"]
+    target = available if MAX_ROWS == 0 else min(MAX_ROWS, available)
+
+    # Already complete: nothing to do (this makes the whole pipeline safe to re-run)
+    if existing == target and not RESUME:
+        log.info("event=producer_skipped taxi=%s reason=topic_already_complete messages=%d",
+                 taxi_type, existing)
+        return
+    # Partly filled: we cannot know where to continue without risking duplicates
     if existing and not RESUME:
         raise SystemExit(
-            f"STOP: topic {topic} already holds {existing:,} messages. Sending again could "
-            f"create duplicates. Delete and recreate the topic to start clean, or set "
-            f"RESUME=true if you are sure the previous run finished its last page.")
+            f"STOP: topic {topic} holds {existing:,} messages but should hold {target:,}. "
+            f"Delete and recreate the topic (or run run_pipeline.ps1 -Reset).")
     offset = existing if RESUME else 0
     sent = 0
     started = time.time()
