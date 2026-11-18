@@ -1,13 +1,17 @@
 """
 Silver job: Bronze -> Gate 2 -> Silver (+ quarantine_silver).
 
-For each taxi type:
-  1. read only NEW Bronze rows (watermark = last ingestion time already processed)
-  2. unify Yellow and Green into one schema and add calculated columns
-  3. remove exact duplicates (same trip_id)
-  4. Gate 2: hard rules -> quarantine_silver, soft rules -> flags in data_quality_flags
-  5. write good rows to Silver (first run: write, later runs: insert-only MERGE on trip_id)
-  6. save the new watermark and write the result to audit.step_logs
+The job works on SLICES: one slice = the rows written to Bronze at one ingestion time
+(one batch file or one streaming micro-batch). Small slices keep memory low and make the
+job RESUMABLE: the watermark moves forward after every slice, so after a crash a new run
+continues from the last finished slice.
+
+For each slice:
+  1. unify Yellow and Green into one schema and add calculated columns
+  2. remove exact duplicates (same trip_id)
+  3. Gate 2: hard rules -> quarantine_silver, soft rules -> flags in data_quality_flags
+  4. good rows -> Silver (first slice creates the table, later slices use an insert-only MERGE)
+  5. save the watermark and write the result to audit.step_logs
 
 Run with:  docker compose run --rm spark python -u src/jobs/silver_batch.py
 """
@@ -30,6 +34,8 @@ RAW_PATH = Path(os.environ["RAW_DATA_PATH"])
 LAKEHOUSE_PATH = os.environ["LAKEHOUSE_PATH"]
 SOURCES_CONFIG = os.getenv("SOURCES_CONFIG", "/app/config/sources.yml")
 RULES_CONFIG = os.getenv("RULES_CONFIG", "/app/config/rules.yml")
+# Change this ONLY when you delete Silver and rebuild it from scratch
+WRITER_VERSION = os.getenv("SILVER_WRITER_VERSION", "v1")
 
 BRONZE_PATH = f"{LAKEHOUSE_PATH}/bronze"
 SILVER_PATH = f"{LAKEHOUSE_PATH}/silver/trips"
@@ -52,13 +58,13 @@ BUSINESS_COLUMNS = [
 def build_spark():
     builder = (
         SparkSession.builder.appName("silver_batch")
-        .master("local[*]")
-        .config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "4g"))
+        .master("local[6]")                               # 6 threads: lower memory pressure
+        .config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "8g"))
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog",
                 "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "64")
+        .config("spark.sql.shuffle.partitions", "24")
     )
     spark = configure_spark_with_delta_pip(builder).getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
@@ -72,13 +78,12 @@ def col_or_null(df, name, dtype):
 
 def unify(df, taxi_type):
     """Give Yellow and Green the same column names and types."""
-    pickup = f"{'tpep' if taxi_type == 'yellow' else 'lpep'}_pickup_datetime"
-    dropoff = f"{'tpep' if taxi_type == 'yellow' else 'lpep'}_dropoff_datetime"
+    prefix = "tpep" if taxi_type == "yellow" else "lpep"
     return df.select(
         F.col("taxi_type"),
         F.col("VendorID").cast("int").alias("vendor_id"),
-        F.col(pickup).alias("pickup_datetime"),
-        F.col(dropoff).alias("dropoff_datetime"),
+        F.col(f"{prefix}_pickup_datetime").alias("pickup_datetime"),
+        F.col(f"{prefix}_dropoff_datetime").alias("dropoff_datetime"),
         F.col("passenger_count").cast("int").alias("passenger_count"),
         F.col("trip_distance").cast("double").alias("trip_distance"),
         F.col("RatecodeID").cast("int").alias("ratecode_id"),
@@ -198,27 +203,16 @@ def load_zone_lists(spark, rules):
     return zone_ids, airport_ids
 
 
-def process_taxi_type(spark, run_id, taxi_type, source, rules, zone_ids, airport_ids):
+def process_slice(spark, run_id, taxi_type, rules, zone_ids, airport_ids,
+                  bronze, watermark_key, ts, mark):
+    """Process the Bronze rows written at ONE ingestion time (ts)."""
     started = time.time()
-    bronze_table = source["table"]
-    watermark_key = f"bronze.{bronze_table}"
-    bronze = spark.read.format("delta").load(f"{BRONZE_PATH}/{bronze_table}")
-    micros = F.unix_micros("ingestion_timestamp")
-
-    # Step 1: which Bronze rows are new? (ingested after the stored watermark)
-    old_mark = audit.get_watermark(watermark_key)
-    new_rows = bronze if old_mark is None else bronze.filter(micros > old_mark)
-    new_mark = new_rows.agg(F.max(micros)).first()[0]
-    if new_mark is None:
-        log.info("event=silver_skipped taxi=%s reason=no_new_rows", taxi_type)
-        audit.log_step(run_id, "silver", f"silver:{taxi_type}", 0, 0, 0, 0, "SKIPPED")
-        return
-    # Fix the upper bound, so rows arriving while we work are left for the next run
-    incoming = new_rows.filter(micros <= new_mark)
+    # Equality on the plain column lets Delta skip every file that does not match
+    incoming = bronze.filter(F.col("ingestion_timestamp") == F.lit(ts))
     incoming_count = incoming.count()
 
-    # Steps 2 to 4: unify, calculate, remove duplicates, apply Gate 2
-    prepared = gate2(add_calculated_columns(unify(incoming, taxi_type)), rules, zone_ids, airport_ids)
+    prepared = gate2(add_calculated_columns(unify(incoming, taxi_type)),
+                     rules, zone_ids, airport_ids)
     deduped = prepared.dropDuplicates(["trip_id"]).persist(StorageLevel.MEMORY_AND_DISK)
     is_bad = F.col("quarantine_reason") != ""
     stats = deduped.agg(F.count("*"), F.sum(is_bad.cast("int"))).first()
@@ -231,12 +225,11 @@ def process_taxi_type(spark, run_id, taxi_type, source, rules, zone_ids, airport
                   .withColumn("run_id", F.lit(run_id))
                   .withColumn("quarantined_at", F.current_timestamp()))
 
-    # Step 5: write to Silver and quarantine
     if good_count:
         if not DeltaTable.isDeltaTable(spark, SILVER_PATH):
             good.write.format("delta").mode("append").partitionBy("pickup_month").save(SILVER_PATH)
         else:
-            # Insert-only MERGE: a row whose trip_id exists is skipped (no duplicates).
+            # Insert-only MERGE: a row whose trip_id already exists is skipped.
             # The month list lets Delta read only the partitions that matter.
             months = [r[0] for r in good.select("pickup_month").distinct().collect()]
             month_list = ",".join(f"'{m}'" for m in months)
@@ -246,17 +239,43 @@ def process_taxi_type(spark, run_id, taxi_type, source, rules, zone_ids, airport
                 .whenNotMatchedInsertAll().execute())
     if bad_count:
         (bad.write.format("delta").mode("append")
+            # Idempotent: if this slice is repeated after a crash, the second write is ignored
+            .option("txnAppId", f"quarantine_silver_{taxi_type}_{WRITER_VERSION}")
+            .option("txnVersion", mark)
             .option("mergeSchema", "true").save(QUARANTINE_PATH))
 
-    # Step 6: remember how far we got, and write the audit row
-    audit.set_watermark(watermark_key, new_mark)
+    # The slice is finished: move the watermark forward
+    audit.set_watermark(watermark_key, mark)
     seconds = round(time.time() - started, 2)
-    log.info("event=silver_done taxi=%s read=%d duplicates_removed=%d accepted=%d "
-             "quarantined=%d seconds=%.1f", taxi_type, incoming_count, duplicates,
-             good_count, bad_count, seconds)
-    audit.log_step(run_id, "silver", f"silver:{taxi_type}", incoming_count,
-                   good_count, bad_count, seconds, "SUCCESS")
+    label = f"silver:{taxi_type}:{str(ts)[:19]}"
+    log.info("event=silver_slice taxi=%s slice=%s read=%d duplicates_removed=%d accepted=%d "
+             "quarantined=%d seconds=%.1f", taxi_type, str(ts)[:19], incoming_count,
+             duplicates, good_count, bad_count, seconds)
+    audit.log_step(run_id, "silver", label, incoming_count, good_count, bad_count,
+                   seconds, "SUCCESS")
     deduped.unpersist()
+
+
+def process_taxi_type(spark, run_id, taxi_type, source, rules, zone_ids, airport_ids):
+    watermark_key = f"bronze.{source['table']}"
+    bronze = spark.read.format("delta").load(f"{BRONZE_PATH}/{source['table']}")
+    micros = F.unix_micros("ingestion_timestamp")
+
+    # Which Bronze rows are new? (ingested after the stored watermark)
+    old_mark = audit.get_watermark(watermark_key)
+    new_rows = bronze if old_mark is None else bronze.filter(micros > old_mark)
+
+    # The distinct ingestion times, oldest first. Each one is one slice.
+    slices = (new_rows.select("ingestion_timestamp", micros.alias("mark"))
+                      .distinct().orderBy("mark").collect())
+    if not slices:
+        log.info("event=silver_skipped taxi=%s reason=no_new_rows", taxi_type)
+        audit.log_step(run_id, "silver", f"silver:{taxi_type}", 0, 0, 0, 0, "SKIPPED")
+        return
+    log.info("event=silver_start taxi=%s slices=%d", taxi_type, len(slices))
+    for row in slices:
+        process_slice(spark, run_id, taxi_type, rules, zone_ids, airport_ids,
+                      bronze, watermark_key, row["ingestion_timestamp"], row["mark"])
 
 
 def main():
