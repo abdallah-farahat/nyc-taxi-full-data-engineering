@@ -70,3 +70,29 @@ def finish_run(run_id, status):
         "Set finished_at = sysutcdatetime(), status = %s Where run_id = %s",
         (status, run_id),
     )
+    
+    
+def get_watermark(source_table):
+    """Return the last processed ingestion time (microseconds) or None if never processed."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("Select last_ingestion_us From audit.watermarks "
+                       "Where source_table = %s", (source_table,))
+        row = cursor.fetchone()
+        return int(row[0]) if row else None
+    finally:
+        conn.close()
+
+
+def set_watermark(source_table, last_ingestion_us):
+    """Create or update the watermark of one source table."""
+    _execute(
+        "Merge audit.watermarks As t "
+        "Using (Select %s As source_table, %s As us) As s "
+        "On t.source_table = s.source_table "
+        "When Matched Then Update Set last_ingestion_us = s.us, updated_at = sysutcdatetime() "
+        "When Not Matched Then Insert (source_table, last_ingestion_us) "
+        "Values (s.source_table, s.us);",
+        (source_table, int(last_ingestion_us)),
+    )

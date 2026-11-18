@@ -1,12 +1,16 @@
 """
 Producer: reads trips from the REST API and sends them to Kafka, one message per trip.
-It RESUMES: it counts the messages already in the topic and starts after them.
+
+SAFE BY DEFAULT: if the topic already holds messages, the producer STOPS instead of
+guessing where to continue (continuing from a message count can send duplicates when a
+previous run was interrupted). Use RESUME=true only if you know what you are doing.
 
 Settings (environment variables, with defaults):
   MAX_ROWS         rows per taxi type to send (0 = all)
   PAGE_SIZE        rows per API request
   ROWS_PER_SECOND  throttle (0 = as fast as possible)
-  TAXI_TYPES       which taxi types to send
+  TAXI_TYPES       which taxi types to send (default: green,yellow)
+  RESUME           true = continue after the messages already in the topic
 
 Example:  docker compose run --rm -e MAX_ROWS=20000 spark python -u src/streaming/producer.py
 """
@@ -25,6 +29,7 @@ PAGE_SIZE = int(os.getenv("PAGE_SIZE", "5000"))
 MAX_ROWS = int(os.getenv("MAX_ROWS", "0"))
 ROWS_PER_SECOND = int(os.getenv("ROWS_PER_SECOND", "0"))
 TAXI_TYPES = os.getenv("TAXI_TYPES", "green,yellow").split(",")
+RESUME = os.getenv("RESUME", "false").lower() == "true"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("producer")
@@ -44,10 +49,16 @@ def messages_in_topic(topic):
 
 def send_taxi_type(producer, taxi_type):
     topic = f"taxi.{taxi_type}.trips"
-    offset = messages_in_topic(topic)          # resume point
+    existing = messages_in_topic(topic)
+    if existing and not RESUME:
+        raise SystemExit(
+            f"STOP: topic {topic} already holds {existing:,} messages. Sending again could "
+            f"create duplicates. Delete and recreate the topic to start clean, or set "
+            f"RESUME=true if you are sure the previous run finished its last page.")
+    offset = existing if RESUME else 0
     sent = 0
     started = time.time()
-    log.info("event=producer_start taxi=%s topic=%s resume_offset=%d", taxi_type, topic, offset)
+    log.info("event=producer_start taxi=%s topic=%s start_offset=%d", taxi_type, topic, offset)
 
     while True:
         # Never ask for more rows than MAX_ROWS allows
@@ -66,7 +77,7 @@ def send_taxi_type(producer, taxi_type):
             # The key (row number) spreads the messages over the partitions
             producer.produce(topic, key=str(offset + index), value=json.dumps(row))
             producer.poll(0)                    # serve delivery callbacks
-        producer.flush()                        # wait until the page is safely in Kafka
+        producer.flush()                        # wait until the whole page is safely in Kafka
 
         offset += len(rows)
         sent += len(rows)
