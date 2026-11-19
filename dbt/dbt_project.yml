@@ -1,0 +1,14 @@
+name: nyc_taxi
+version: "1.0.0"
+config-version: 2
+profile: nyc_taxi
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  nyc_taxi:
+    marts:
+      +materialized: view     # views: no storage, always read the latest Gold data
+      +schema: marts          # created in the SQL Server schema "marts"
