@@ -1,0 +1,105 @@
+version: 2
+
+sources:
+  - name: gold
+    schema: gold
+    tables:
+      - name: dim_date
+        columns:
+          - name: date_key
+            tests: [unique, not_null]
+      - name: dim_location
+        columns:
+          - name: location_key
+            tests: [unique, not_null]
+      - name: dim_payment
+        columns:
+          - name: payment_key
+            tests:
+              - unique
+              - not_null
+              - accepted_values:
+                  values: [-1, 0, 1, 2, 3, 4, 5, 6]
+                  quote: false
+      - name: dim_taxi_type
+        columns:
+          - name: taxi_type_key
+            tests: [unique, not_null]
+          - name: taxi_type
+            tests:
+              - accepted_values:
+                  values: ['yellow', 'green']
+
+      - name: agg_trips_daily
+        columns:
+          - name: pickup_date_key
+            tests:
+              - not_null
+              - relationships:
+                  to: source('gold', 'dim_date')
+                  field: date_key
+          - name: taxi_type_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_taxi_type')
+                  field: taxi_type_key
+          - name: pu_location_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_location')
+                  field: location_key
+          - name: payment_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_payment')
+                  field: payment_key
+          - name: trip_count
+            tests: [not_null]
+
+      - name: agg_trips_hourly
+        columns:
+          - name: pickup_date_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_date')
+                  field: date_key
+          - name: taxi_type_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_taxi_type')
+                  field: taxi_type_key
+
+      # Trip-level fact: its tests read 83 million rows, so run them after the full load
+      - name: fact_trips
+        columns:
+          - name: trip_key
+            tests:
+              - not_null
+              - unique:
+                  config:
+                    tags: ['heavy']
+          - name: pickup_date_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_date')
+                  field: date_key
+          - name: taxi_type_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_taxi_type')
+                  field: taxi_type_key
+          - name: pu_location_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_location')
+                  field: location_key
+          - name: do_location_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_location')
+                  field: location_key
+          - name: payment_key
+            tests:
+              - relationships:
+                  to: source('gold', 'dim_payment')
+                  field: payment_key

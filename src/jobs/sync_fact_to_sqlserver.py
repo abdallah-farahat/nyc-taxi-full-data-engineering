@@ -106,14 +106,14 @@ def main():
                 deleted_something = True
             (fact.filter(f"pickup_month = '{month}'")
                  .select(F.unhex(F.substring("trip_id", 1, 32)).alias("trip_key"), *COLUMNS)
-                 .coalesce(4)
+                 .coalesce(2)
                  .write.format("jdbc")
                  .option("url", JDBC_URL)
                  .option("dbtable", "gold.fact_trips")
                  .option("user", os.environ["SQLSERVER_USER"])
                  .option("password", os.environ["SQLSERVER_PASSWORD"])
                  .option("driver", "com.microsoft.sqlserver.jdbc.SQLServerDriver")
-                 .option("batchsize", "100000")
+                 .option("batchsize", "50000")
                  .mode("append").save())
             loaded = sql_run("Select Count(*) From gold.fact_trips Where pickup_month = %s", (month,))[0][0]
             seconds = round(time.time() - started, 1)
