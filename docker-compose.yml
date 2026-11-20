@@ -16,6 +16,7 @@ services:
   api:
     build: .
     container_name: nyc_taxi_api
+    restart: unless-stopped
     env_file: .env
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     ports:
@@ -28,6 +29,7 @@ services:
   kafka:
     image: apache/kafka:3.9.0
     container_name: nyc_taxi_kafka
+    restart: unless-stopped
     environment:
       # One node that is both broker and controller (KRaft mode, no ZooKeeper)
       KAFKA_NODE_ID: 1
@@ -46,5 +48,35 @@ services:
       # Named volume: messages survive a container restart
       - kafka_data:/var/lib/kafka/data
 
+  # Airflow: schedules and orchestrates the whole pipeline (UI on http://localhost:8080)
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: nyc_taxi_airflow
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /app/airflow/dags
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      DBT_SQLSERVER_HOST: host.docker.internal
+      DBT_TARGET_PATH: /tmp/dbt_target
+      DBT_LOG_PATH: /tmp/dbt_logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./dbt:/app/dbt
+      - ./airflow/dags:/app/airflow/dags
+      - ${RAW_DATA_HOST_PATH}:/data/raw:ro
+      - ${LAKEHOUSE_HOST_PATH}:/data/lakehouse
+      - airflow_home:/opt/airflow
+    command: /opt/airflow-venv/bin/airflow standalone
+
 volumes:
   kafka_data:
+  airflow_home:

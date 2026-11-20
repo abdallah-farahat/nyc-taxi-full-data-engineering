@@ -1,0 +1,7 @@
+
+Step                  Minutes
+----                  -------
+12  Verify all layers     1.4
+
+
+Total: 1.4 minutes
