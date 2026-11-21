@@ -21,4 +21,6 @@ RUN python -m venv /opt/airflow-venv \
        --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-3.11.txt"
 
 ENV AIRFLOW_HOME=/opt/airflow
+ENV AIRFLOW_HOME=/opt/airflow
+ENV PATH="${PATH}:/opt/airflow-venv/bin"
 WORKDIR /app
