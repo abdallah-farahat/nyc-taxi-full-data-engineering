@@ -121,8 +121,19 @@ Gold lives in the lakehouse. SQL Server holds the dimensions, the two aggregates
 (`mart_demand_hourly`, `mart_demand_by_zone`, `mart_payment_tips`, `mart_revenue_monthly`). Power BI reads those views.
 See the Serving Layer and Gold Model document for the columns and the definition of every measure.
 
-![Dashboard overview](docs/images/dashboard_overview.png)
-![Airflow graph](docs/images/airflow_graph.png)
+### Dashboard Pages
+
+1. **Executive Overview** — High-level KPIs (`76.2M` clean trips, `$2.232B` total revenue, `$43.27M` CBD congestion revenue), monthly trends across 2025–2026, borough revenue distribution, and payment method shares.
+![Dashboard Overview](docs/images/dashboard_overview.png)
+
+2. **Geographic Insights** — Spatial demand density across NYC zones (`Upper East Side South`, `Midtown Center`, `JFK Airport`), service zone breakdown, pickup vs. dropoff borough flows, and zone-level fare performance.
+![Dashboard Geographic Insights](docs/images/dashboard_geographic.png)
+
+3. **Time Analysis** — 24-hour demand curve (peaking at `6 PM`), day-of-week & hour heatmap, monthly fare seasonality, and weekday vs. weekend CBD revenue impact.
+![Dashboard Time Analysis](docs/images/dashboard_time_analysis.png)
+
+### Airflow Orchestration Graph
+![Airflow Graph](docs/images/airflow_graph.png)
 
 ## 9. Testing and CI
 
