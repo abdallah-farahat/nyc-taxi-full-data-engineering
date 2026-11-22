@@ -230,15 +230,7 @@ The columns, the definition of every measure and the data caveats are in the **S
 <table>
   <tr>
     <td width="50%"><img src="docs/images/dashboard_geographic.png" alt="Geographic insights"></td>
-    <td width="50%"><img src="docs/images/dashboard_time.png" alt="Time analysis"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/dashboard_revenue.png" alt="Revenue and payments"></td>
-    <td width="50%"><img src="docs/images/dashboard_performance.png" alt="Trip performance"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/dashboard_quality.png" alt="Data quality"></td>
-    <td width="50%"></td>
+    <td width="50%"><img src="docs/images/dashboard_time_analysis.png" alt="Time analysis"></td>
   </tr>
 </table>
 
