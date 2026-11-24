@@ -1,7 +1,18 @@
 
-Step                  Minutes
-----                  -------
-12  Verify all layers     1.4
+Step                                  Minutes
+----                                  -------
+1  Start Kafka and API, create topics     0.4
+2  Bronze batch: files and Gate 1         0.5
+3  Producer: REST API to Kafka              0
+4  Streaming into Bronze (Gate 1)         0.2
+5  Bronze check                           0.5
+6  Silver: Gate 2                         0.4
+7  Gold: Gate 3, star schema                1
+8  Sync dimensions and aggregates         0.6
+9  Sync trip-level fact                   0.3
+10  dbt: build marts                      0.1
+11  dbt: data tests                       0.1
+12  Verify all layers                     1.5
 
 
-Total: 1.4 minutes
+Total: 5.6 minutes
