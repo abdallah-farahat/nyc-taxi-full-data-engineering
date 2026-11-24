@@ -378,12 +378,9 @@ break: Gate 1 treats it as optional, Delta writes use `mergeSchema`, and Silver 
 |---|---|
 | [`docs/decisions.md`](docs/decisions.md) | Design decisions (ADRs): why each tool, which alternatives |
 | [`docs/erd_star_schema.md`](docs/erd_star_schema.md) | Star schema diagram |
-| `docs/data_dictionary_and_quality_rules` | Every source column, its meaning, limits, rules and the quarantine decisions |
-| `docs/serving_layer_and_gold_model` | Business questions, tables, columns, measures and caveats of the serving layer |
-| `docs/tool_usage_log` | Where each tool was used and why |
 | [`docs/performance_queries.md`](docs/performance_queries.md) | Query timing: fact versus aggregate |
 | [`docs/demo_script.md`](docs/demo_script.md) | Demo flow and answers to likely questions |
-| `docs/performance_full_run.txt` | Timing of each step of `run_pipeline.ps1` |
+| [`docs/performance_full_run.txt`](docs/performance_full_run.txt) | Timing of each step of `run_pipeline.ps1` |
 
 ## 18. Repository structure
 
