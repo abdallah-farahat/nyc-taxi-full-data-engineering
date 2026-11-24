@@ -318,7 +318,7 @@ the money total in SQL Server equals the lakehouse total to the cent (2,372,084,
 1. **Silver in slices.** The first version processed all 82 million rows at once and the Docker engine crashed from memory pressure.
    Processing one ingestion slice at a time keeps memory flat and makes the job resumable: the watermark moves after every slice.
 2. **Aggregates for the dashboard.** Power BI does not scan 83 million rows. Time of the same question on the fact versus the aggregate:
-   see [`docs/performance_queries.md`](docs/performance_queries.md).
+   see [`docs/performance_full_run.txt`](docs/performance_full_run.txt).
 3. **Columnstore, a 128-bit `trip_key` and no primary key on the fact** keep the table small and the load fast.
 4. **Local first, cloud later.** All work ran locally to avoid cloud cost. Switching to Azure only needs new values in `.env`.
 
